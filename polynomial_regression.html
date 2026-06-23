@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多项式回归 · 任意次数拟合</title>
+    <!-- MathJax 配置：确保识别 \( \) 和 \[ \]，并在加载完成后可调用 typeset -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)'], ['$', '$']],
+                displayMath: [['\\[', '\\]']]
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+            }
+        };
+    </script>
+    <!-- 引入 MathJax 渲染公式（不要使用 async，以便配置生效） -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" id="MathJax-script"></script>
+    <!-- Chart.js 轻量图表 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --danger: #dc2626;
+            --ink: #0f172a;
+            --muted: #64748b;
+            --line: #dbe3ee;
+            --surface: #ffffff;
+            --surface-soft: #f6f8fb;
+            --radius: 18px;
+            --shadow: 0 16px 38px rgba(15, 23, 42, 0.10);
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Roboto', 'Poppins', system-ui, -apple-system, '微软雅黑', sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(37, 99, 235, 0.10), transparent 32rem),
+                linear-gradient(135deg, #f7f9fd 0%, #eef3f9 100%);
+            margin: 0;
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--ink);
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .main-content {
+            flex: 3;
+            min-width: 280px;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(219, 227, 238, 0.9);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 22px 24px;
+            transition: all 0.2s;
+        }
+
+        .knowledge-sidebar {
+            flex: 1;
+            min-width: 260px;
+        }
+
+        .card-wrapper {
+            background: white;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: #fff;
+            cursor: pointer;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--ink);
+            transition: background 0.2s;
+        }
+        .card-header:hover { background: #f8fafc; }
+        .card-header h3 { margin: 0; font-size: 1.2rem; }
+        .toggle-icon {
+            font-size: 1.4rem;
+            transition: transform 0.25s ease;
+            font-weight: bold;
+        }
+        .card-body {
+            padding: 0 20px 20px 20px;
+            background: #ffffff;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.33, 1, 0.68, 1), padding 0.2s;
+        }
+        .card-body.open {
+            max-height: 800px;
+            padding: 16px 20px 20px 20px;
+        }
+        .card-body p, .card-body li {
+            color: #334155;
+            line-height: 1.5;
+        }
+        .latex-block {
+            background: var(--surface-soft);
+            padding: 8px 12px;
+            border-radius: 12px;
+            margin: 12px 0;
+            text-align: center;
+            font-size: 1rem;
+        }
+        .latex-output {
+            display: inline-block;
+            vertical-align: middle;
+            font-size: 1rem;
+            padding: 2px 6px;
+        }
+        .badge {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            font-size: 0.7rem;
+            border-radius: 40px;
+            padding: 2px 12px;
+            margin-right: 8px;
+        }
+        hr { margin: 16px 0; border-color: #e2e8f0; }
+
+        .data-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 28px;
+            align-items: flex-end;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .input-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--ink);
+        }
+        input, select, button {
+            border: none;
+            border-radius: 999px;
+            padding: 9px 16px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        input, select {
+            background: var(--surface-soft);
+            border: 1px solid #cbd5e1;
+            width: 100px;
+            transition: 0.2s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+        }
+        button {
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        button:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+        button:focus-visible, .card-header:focus-visible {
+            outline: 3px solid rgba(37, 99, 235, 0.22);
+            outline-offset: 2px;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none;
+        }
+        .btn-outline {
+            background: white;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+        }
+        .btn-outline:hover { background: #eff6ff; }
+        .btn-reset {
+            background: var(--danger);
+        }
+        .btn-reset:hover { background: #dc2626; }
+        .data-table {
+            background: #f8fafc;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 12px;
+            margin: 20px 0;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .data-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        .data-card {
+            min-width: 160px;
+            background: white;
+            border-radius: 14px;
+            padding: 10px 12px;
+            box-shadow: 0 6px 18px rgba(2,6,23,0.06);
+            text-align: center;
+            display: inline-flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .data-card .values { font-weight: 600; color: #0f172a; }
+        .data-card .label { font-size: 0.85rem; color: #475569; }
+        .empty-message { color:#475569; padding:20px; }
+        .delete-row {
+            background: none;
+            color: #ef4444;
+            font-weight: bold;
+            font-size: 0.95rem;
+            padding: 6px 8px;
+            border-radius:12px;
+            cursor:pointer;
+        }
+        .delete-row:hover { background: #fee2e2; transform: none; }
+
+        .stats {
+            background: #eef2ff;
+            border: 1px solid #dbeafe;
+            border-radius: var(--radius);
+            padding: 12px 20px;
+            margin: 15px 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .stat-card {
+            background: white;
+            padding: 8px 16px;
+            border-radius: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            font-size: 0.9rem;
+        }
+        .stat-card strong { font-weight: 600; }
+        canvas {
+            max-height: 380px;
+            width: 100%;
+            margin: 15px 0;
+        }
+        h2 {
+            font-size: 1.6rem;
+            margin: 0 0 8px 0;
+            color: #0f172a;
+        }
+        .sub { color: #475569; margin-bottom: 16px; }
+        .degree-panel {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .degree-panel label {
+            font-weight: 600;
+            color: var(--ink);
+        }
+        .degree-panel span {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+        .status-message {
+            min-height: 22px;
+            color: #475569;
+            font-size: 0.88rem;
+            margin-bottom: 8px;
+        }
+        .status-message[data-tone="warn"] {
+            color: #b45309;
+        }
+        .status-message[data-tone="success"] {
+            color: #047857;
+        }
+        footer {
+            font-size: 0.7rem;
+            text-align: center;
+            margin-top: 20px;
+            color: #5b6e8c;
+        }
+        .degree-select {
+            width: 80px;
+        }
+        @media (max-width: 800px) {
+            body { padding: 12px; }
+            .dashboard { flex-direction: column; }
+            .stats { flex-direction: column; }
+            .main-content { padding: 18px 16px; }
+            .data-panel { align-items: stretch; }
+            .input-group, .data-panel button { width: 100%; }
+            input, select { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard">
+    <!-- 左侧主区域 -->
+    <div class="main-content">
+        <h2>📐 多项式回归 · 任意次数拟合</h2>
+        <div class="sub">✨ 观察数据点并拟合多项式曲线 (次数可调)</div>
+
+        <!-- 数据操作栏 -->
+        <div class="data-panel">
+            <div class="input-group">
+                <label>📌 x</label>
+                <input type="number" id="xInput" step="0.5" value="1.0">
+            </div>
+            <div class="input-group">
+                <label>📌 y</label>
+                <input type="number" id="yInput" step="0.5" value="2.0">
+            </div>
+            <button id="addDataBtn">➕ 添加数据点</button>
+            <button id="genRandomBtn" class="btn-outline">🎲 生成示例数据 (二次)</button>
+            <button id="resetBtn" class="btn-reset">🗑️ 清空</button>
+        </div>
+
+        <!-- 多项式次数选择 -->
+        <div class="degree-panel">
+            <label for="degreeSelect">📈 多项式次数：</label>
+            <select id="degreeSelect" class="degree-select">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+            </select>
+            <span>次数 ≤ 数据点数 - 1</span>
+        </div>
+        <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
+
+        <!-- 数据展示 -->
+        <div class="data-table">
+            <div id="dataRow" class="data-row">
+                <div class="empty-message">暂无数据，请添加或生成数据~</div>
+            </div>
+        </div>
+
+        <!-- 回归结果 -->
+        <div class="stats" id="regStats">
+            <div class="stat-card"><strong>📝 拟合方程</strong> <span id="regEq">——</span></div>
+            <div class="stat-card"><strong>📊 R²</strong> <span id="r2Value">—</span></div>
+            <div class="stat-card"><strong>🔢 系数</strong> <span id="coeffs">—</span></div>
+        </div>
+
+        <!-- 图表 -->
+        <canvas id="scatterChart" width="600" height="400" style="max-width:100%; background:#fff; border-radius:24px; padding:8px;"></canvas>
+        <footer>💡 提示：点击「生成示例数据」会创建基于 y = 0.5·x² + 1.2·x + 0.5 并加入噪声的点，便于观察多项式拟合效果。</footer>
+    </div>
+
+    <!-- 右侧知识卡片 -->
+    <div class="knowledge-sidebar">
+        <!-- 卡片1: 多项式回归公式 -->
+        <div class="card-wrapper">
+            <div class="card-header" data-target="formulaCard">
+                <h3>📖 多项式回归公式</h3>
+                <span class="toggle-icon">▶</span>
+            </div>
+            <div id="formulaCard" class="card-body">
+                <p>给定 n 个数据点 \((x_i, y_i)\)，拟合 m 次多项式：</p>
+                <div class="latex-block">
+                    \[
+                    y = \beta_0 + \beta_1 x + \beta_2 x^2 + \cdots + \beta_m x^m
+                    \]
+                </div>
+                <p>通过最小二乘法求解系数 \(\beta\)，使误差平方和最小。</p>
+                <p>正规方程：</p>
+                <div class="latex-block">
+                    \[
+                    \boldsymbol{\beta} = (\mathbf{X}^\top \mathbf{X})^{-1} \mathbf{X}^\top \mathbf{y}
+                    \]
+                </div>
+                <p>其中 \(\mathbf{X}\) 是设计矩阵（每行为 \(1, x, x^2, \dots, x^m\)）。</p>
+            </div>
+        </div>
+
+        <!-- 卡片2: R² 决定系数 -->
+        <div class="card-wrapper">
+            <div class="card-header" data-target="r2Card">
+                <h3>📊 决定系数 R²</h3>
+                <span class="toggle-icon">▶</span>
+            </div>
+            <div id="r2Card" class="card-body">
+                <p>衡量模型拟合优度：</p>
+                <div class="latex-block">
+                    \[
+                    R^2 = 1 - \frac{\sum (y_i - \hat{y}_i)^2}{\sum (y_i - \bar{y})^2}
+                    \]
+                </div>
+                <ul>
+                    <li>\(R^2\) 越接近 1，说明模型解释的变异性越多。</li>
+                    <li>\(R^2\) 过低表示模型不够拟合数据。</li>
+                    <li>⚠️ 注意：增加多项式次数会提高 \(R^2\)，但可能导致过拟合！</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 卡片3: 过拟合警示 -->
+        <div class="card-wrapper">
+            <div class="card-header" data-target="overfitCard">
+                <h3>⚠️ 过拟合与欠拟合</h3>
+                <span class="toggle-icon">▶</span>
+            </div>
+            <div id="overfitCard" class="card-body">
+                <p><strong>欠拟合</strong>：次数太低，无法捕捉数据趋势（如用直线拟合弯曲数据）。</p>
+                <p><strong>过拟合</strong>：次数太高，曲线过于曲折，过度迎合噪声，失去泛化能力。</p>
+                <p>✅ 选择合适次数的方法：</p>
+                <ul>
+                    <li>观察曲线是否平滑且符合常识。</li>
+                    <li>将数据分为训练集和测试集，比较测试集误差。</li>
+                    <li>使用 AIC / BIC 等准则（此处不展开）。</li>
+                </ul>
+                <p style="color: #b45309;">💡 初中生小贴士：就像画画，次数太低画不出弯，次数太高画得太扭曲，选一个刚刚好的。</p>
+            </div>
+        </div>
+
+        <!-- 卡片4: 应用场景 -->
+        <div class="card-wrapper">
+            <div class="card-header" data-target="scenesCard">
+                <h3>🚗 应用场景</h3>
+                <span class="toggle-icon">▶</span>
+            </div>
+            <div id="scenesCard" class="card-body">
+                <p><span class="badge">物理</span> 物体抛射轨迹（二次）</p>
+                <p><span class="badge">生物</span> 种群增长曲线（三次或更高）</p>
+                <p><span class="badge">经济</span> 成本–收益非线性关系</p>
+                <p><span class="badge">工程</span> 传感器标定曲线</p>
+                <p>只要数据呈现弯曲、有波峰波谷，多项式回归就是基础工具之一。</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---------- 全局数据 ----------
+    let dataPoints = [];           // [{x, y}, ...]
+    let chart = null;
+    let currentDegree = 2;         // 默认二次
+
+    // DOM 元素
+    const xInput = document.getElementById('xInput');
+    const yInput = document.getElementById('yInput');
+    const addBtn = document.getElementById('addDataBtn');
+    const genRandomBtn = document.getElementById('genRandomBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const degreeSelect = document.getElementById('degreeSelect');
+    const dataRow = document.getElementById('dataRow');
+    const regEqSpan = document.getElementById('regEq');
+    const r2ValueSpan = document.getElementById('r2Value');
+    const coeffsSpan = document.getElementById('coeffs');
+    const statusMessage = document.getElementById('statusMessage');
+    let mathjaxQueued = false;
+    let mathjaxBusy = false;
+
+    function setStatus(message, tone = 'info') {
+        statusMessage.textContent = message || '';
+        statusMessage.dataset.tone = tone;
+    }
+
+    function clampDegreeToData() {
+        const maxDegree = Math.max(1, dataPoints.length - 1);
+        const requested = parseInt(degreeSelect.value, 10) || 1;
+        const nextDegree = Math.min(requested, maxDegree, 10);
+
+        Array.from(degreeSelect.options).forEach(option => {
+            const value = parseInt(option.value, 10);
+            option.disabled = dataPoints.length > 0 && value > maxDegree;
+        });
+
+        if (requested !== nextDegree) {
+            degreeSelect.value = String(nextDegree);
+            setStatus(`当前只有 ${dataPoints.length} 个数据点，次数已调整为 ${nextDegree}。`, 'warn');
+        }
+        return nextDegree;
+    }
+
+    function scheduleTypeset() {
+        if (mathjaxQueued) return;
+        mathjaxQueued = true;
+        requestAnimationFrame(() => {
+            mathjaxQueued = false;
+            safeTypeset();
+        });
+    }
+
+    // ---------- 多项式回归核心函数（纯 JS 实现，不依赖 mathjs） ----------
+    function polyRegression(points, deg) {
+        const n = points.length;
+        if (n < deg + 1) {
+            return null; // 数据点不足
+        }
+
+        const p = deg + 1;
+        // 构建正规方程矩阵 XTX (p x p) 和向量 XTY (p)
+        const XTX = Array.from({ length: p }, () => Array(p).fill(0));
+        const XTY = Array(p).fill(0);
+
+        for (let k = 0; k < n; k++) {
+            const x = points[k].x;
+            const y = points[k].y;
+            // 预计算 powers
+            const xp = new Array(p);
+            xp[0] = 1;
+            for (let i = 1; i < p; i++) xp[i] = xp[i - 1] * x;
+            for (let i = 0; i < p; i++) {
+                XTY[i] += xp[i] * y;
+                for (let j = 0; j < p; j++) {
+                    XTX[i][j] += xp[i] * xp[j];
+                }
+            }
+        }
+
+        // 高斯消元解线性方程组 XTX * coeff = XTY
+        function solveLinearSystem(A, b) {
+            const m = A.length;
+            // 构造增广矩阵
+            const M = new Array(m);
+            for (let i = 0; i < m; i++) M[i] = A[i].slice().concat([b[i]]);
+
+            for (let k = 0; k < m; k++) {
+                // 部分选主元
+                let maxRow = k;
+                let maxVal = Math.abs(M[k][k]);
+                for (let r = k + 1; r < m; r++) {
+                    const val = Math.abs(M[r][k]);
+                    if (val > maxVal) { maxVal = val; maxRow = r; }
+                }
+                if (maxVal < 1e-12) return null; // 矩阵奇异或接近奇异
+                if (maxRow !== k) {
+                    const tmp = M[k]; M[k] = M[maxRow]; M[maxRow] = tmp;
+                }
+                // 消元
+                for (let i = k + 1; i < m; i++) {
+                    const factor = M[i][k] / M[k][k];
+                    for (let j = k; j <= m; j++) M[i][j] -= factor * M[k][j];
+                }
+            }
+            // 回代
+            const x = new Array(m).fill(0);
+            for (let i = m - 1; i >= 0; i--) {
+                let s = M[i][m];
+                for (let j = i + 1; j < m; j++) s -= M[i][j] * x[j];
+                x[i] = s / M[i][i];
+            }
+            return x;
+        }
+
+        const coeffArr = solveLinearSystem(XTX, XTY);
+        if (!coeffArr) return null; // 奇异无法求解
+
+        // 计算 R²
+        const sumY = points.reduce((acc, v) => acc + v.y, 0);
+        const yMean = sumY / n;
+        let SS_tot = 0, SS_res = 0;
+        for (let pnt of points) {
+            SS_tot += Math.pow(pnt.y - yMean, 2);
+            let yPred = 0;
+            let xp = 1;
+            for (let i = 0; i < coeffArr.length; i++) {
+                yPred += coeffArr[i] * xp;
+                xp *= pnt.x;
+            }
+            SS_res += Math.pow(pnt.y - yPred, 2);
+        }
+        const R2 = (SS_tot === 0) ? 1 : 1 - SS_res / SS_tot;
+        return { coefficients: coeffArr, R2 };
+    }
+
+    // ---------- 生成多项式方程字符串 ----------
+    function buildEquation(coeffs) {
+        if (!coeffs || coeffs.length === 0) return '——';
+        let parts = [];
+        for (let i = 0; i < coeffs.length; i++) {
+            let c = coeffs[i];
+            if (Math.abs(c) < 1e-10) continue; // 忽略接近0的系数
+            let term = '';
+            if (i === 0) {
+                term = c.toFixed(3);
+            } else if (i === 1) {
+                term = (c >= 0 ? '+' : '') + c.toFixed(3) + ' x';
+            } else {
+                term = (c >= 0 ? '+' : '') + c.toFixed(3) + ' x^{' + i + '}';
+            }
+            parts.push(term);
+        }
+        if (parts.length === 0) return '0';
+        let eq = parts.join(' ');
+        // 去掉首部的 '+'
+        if (eq.startsWith('+')) eq = eq.substring(1);
+        return 'y = ' + eq;
+    }
+
+    // ---------- 更新 UI (表格、统计、图表) ----------
+    function updateAll() {
+        setStatus('');
+
+        // 更新表格
+        if (dataPoints.length === 0) {
+            dataRow.innerHTML = '<div class="empty-message">暂无数据，请添加或生成数据~</div>';
+        } else {
+            let html = '';
+            dataPoints.forEach((point, idx) => {
+                html += `<div class="data-card" data-index="${idx}">
+                            <div class="label">x</div>
+                            <div class="values">${point.x.toFixed(2)}</div>
+                            <div class="label">y</div>
+                            <div class="values">${point.y.toFixed(2)}</div>
+                            <button class="delete-row" data-index="${idx}">🗑️ 删除</button>
+                         </div>`;
+            });
+            dataRow.innerHTML = html;
+            // 绑定删除事件
+            document.querySelectorAll('.delete-row').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const idx = parseInt(btn.getAttribute('data-index'));
+                    if (!isNaN(idx)) {
+                        dataPoints.splice(idx, 1);
+                        updateAll();
+                    }
+                });
+            });
+        }
+
+        // 获取当前次数
+        currentDegree = clampDegreeToData();
+        const n = dataPoints.length;
+
+        // 计算回归 (如果数据充足)
+        let result = null;
+        const hasEnoughPoints = n >= currentDegree + 1;
+        if (hasEnoughPoints) {
+            result = polyRegression(dataPoints, currentDegree);
+        }
+
+        // 更新统计信息
+        if (result) {
+            const coeffs = result.coefficients;
+            const R2 = result.R2;
+            // 使用 LaTeX 格式渲染方程与系数，使上下标显示良好
+            const eqText = buildEquation(coeffs);
+            // regEq 显示为行间公式
+            regEqSpan.innerHTML = '<div class="latex-output">\\[' + eqText.replace(/&/g,'&amp;') + '\\]</div>';
+            // R^2 使用行内公式
+            r2ValueSpan.innerHTML = '<span class="latex-output">\\(R^2=' + R2.toFixed(5) + '\\)</span>';
+            // 系数从高次到低次，用 LaTeX β_i 下标
+            let coeffParts = [];
+            for (let i = coeffs.length - 1; i >= 0; i--) {
+                coeffParts.push('\\(\\beta_{' + i + '}=' + coeffs[i].toFixed(3) + '\\)');
+            }
+            coeffsSpan.innerHTML = '<span class="latex-output">' + coeffParts.join('\\;') + '</span>';
+            setStatus(`已用 ${n} 个数据点完成 ${currentDegree} 次多项式拟合。`, 'success');
+        } else {
+            if (n === 0) {
+                regEqSpan.textContent = '——';
+                setStatus('添加至少 2 个数据点后即可开始拟合。');
+            } else if (!hasEnoughPoints) {
+                regEqSpan.textContent = '⚠️ 数据点不足 (需要 ≥ 次数+1)';
+                setStatus(`当前有 ${n} 个数据点，至少需要 ${currentDegree + 1} 个。`, 'warn');
+            } else {
+                regEqSpan.textContent = '⚠️ 当前数据无法稳定求解';
+                setStatus('请减少多项式次数，或避免多个数据点使用完全相同的 x 值。', 'warn');
+            }
+            r2ValueSpan.textContent = '—';
+            coeffsSpan.textContent = '—';
+        }
+
+        // 更新图表
+        updateChart(result);
+        scheduleTypeset();
+    }
+
+    // ---------- 更新图表 ----------
+    function updateChart(result) {
+        if (!chart) return;
+
+        // 散点数据
+        chart.data.datasets[0].data = dataPoints.map(p => ({ x: p.x, y: p.y }));
+
+        // 拟合曲线数据 (如果result存在)
+        if (result && dataPoints.length > 0) {
+            const coeffs = result.coefficients;
+            const deg = coeffs.length - 1;
+            // 确定x范围
+            let minX = Math.min(...dataPoints.map(p => p.x));
+            let maxX = Math.max(...dataPoints.map(p => p.x));
+            const range = maxX - minX || 1;
+            minX = minX - range * 0.12;
+            maxX = maxX + range * 0.12;
+            const step = (maxX - minX) / 100;
+            const curvePoints = [];
+            for (let pointIndex = 0; pointIndex <= 100; pointIndex++) {
+                const x = minX + step * pointIndex;
+                let y = 0;
+                for (let power = 0; power <= deg; power++) {
+                    y += coeffs[power] * Math.pow(x, power);
+                }
+                curvePoints.push({ x, y });
+            }
+            chart.data.datasets[1].data = curvePoints;
+        } else {
+            chart.data.datasets[1].data = [];
+        }
+        chart.update();
+    }
+
+    // ---------- 初始化 Chart.js ----------
+    function initChart() {
+        const ctx = document.getElementById('scatterChart').getContext('2d');
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: '实测数据',
+                        data: [],
+                        backgroundColor: '#3b82f6',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        showLine: false,
+                        order: 2
+                    },
+                    {
+                        label: '拟合曲线',
+                        data: [],
+                        type: 'line',
+                        borderColor: '#ef4444',
+                        borderWidth: 3,
+                        fill: false,
+                        pointRadius: 0,
+                        tension: 0.1,
+                        order: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                if (context.dataset.label === '实测数据') {
+                                    return `x: ${context.parsed.x.toFixed(2)}, y: ${context.parsed.y.toFixed(2)}`;
+                                } else {
+                                    return `预测 y ≈ ${context.parsed.y.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    legend: { position: 'top' }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'x', font: { weight: 'bold' } },
+                        beginAtZero: false,
+                    },
+                    y: {
+                        title: { display: true, text: 'y', font: { weight: 'bold' } },
+                        beginAtZero: false,
+                    }
+                }
+            }
+        });
+        updateAll();
+    }
+
+    // ---------- 交互事件绑定 ----------
+    function bindEvents() {
+        addBtn.addEventListener('click', () => {
+            const x = parseFloat(xInput.value);
+            const y = parseFloat(yInput.value);
+            if (isNaN(x) || isNaN(y)) {
+                alert('请输入有效的数字！');
+                return;
+            }
+            dataPoints.push({ x, y });
+            xInput.value = '';
+            yInput.value = '';
+            updateAll();
+        });
+
+        genRandomBtn.addEventListener('click', () => {
+            // 生成基于 y = 0.5*x^2 + 1.2*x + 0.5 + 噪声 的8个点
+            const newPoints = [];
+            const xs = [0.5, 1.0, 1.8, 2.5, 3.2, 4.0, 4.8, 5.5];
+            for (let x of xs) {
+                let y = 0.5 * x * x + 1.2 * x + 0.5;
+                // 加噪声 ±0.6
+                y += (Math.random() - 0.5) * 1.2;
+                y = Math.max(0.1, y);
+                newPoints.push({ x, y: parseFloat(y.toFixed(2)) });
+            }
+            dataPoints = newPoints;
+            updateAll();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (confirm('清空所有数据点吗？')) {
+                dataPoints = [];
+                updateAll();
+            }
+        });
+
+        degreeSelect.addEventListener('change', () => {
+            updateAll();
+        });
+
+        // 回车键快速添加
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.target === xInput || e.target === yInput)) {
+                addBtn.click();
+            }
+        });
+    }
+
+    // ---------- MathJax 渲染调度 ----------
+    function safeTypeset() {
+        if (!window.MathJax || !MathJax.typesetPromise) return;
+        if (mathjaxBusy) {
+            scheduleTypeset();
+            return;
+        }
+        const nodes = Array.from(document.querySelectorAll('.latex-block, .latex-output'));
+        if (nodes.length === 0) return;
+
+        mathjaxBusy = true;
+        MathJax.typesetClear?.(nodes);
+        MathJax.typesetPromise(nodes).catch(() => {
+            // CDN 或公式渲染偶发失败时，保留原始文本，不阻断页面交互。
+        }).finally(() => {
+            mathjaxBusy = false;
+        });
+    }
+
+    // ---------- 折叠卡片逻辑 ----------
+    function initFoldableCards() {
+        const headers = document.querySelectorAll('.card-header');
+        headers.forEach(header => {
+            const targetId = header.getAttribute('data-target');
+            const bodyDiv = document.getElementById(targetId);
+            if (!bodyDiv) return;
+            const iconSpan = header.querySelector('.toggle-icon');
+            header.setAttribute('role', 'button');
+            header.setAttribute('tabindex', '0');
+            header.setAttribute('aria-controls', targetId);
+            header.setAttribute('aria-expanded', 'false');
+            bodyDiv.classList.remove('open');
+            if (iconSpan) iconSpan.innerHTML = '▶';
+
+            const toggleCard = () => {
+                const isOpen = bodyDiv.classList.contains('open');
+                if (isOpen) {
+                    bodyDiv.classList.remove('open');
+                    if (iconSpan) iconSpan.innerHTML = '▶';
+                    header.setAttribute('aria-expanded', 'false');
+                } else {
+                    bodyDiv.classList.add('open');
+                    if (iconSpan) iconSpan.innerHTML = '▼';
+                    header.setAttribute('aria-expanded', 'true');
+                }
+                if (window.MathJax) {
+                    safeTypeset();
+                }
+            };
+
+            header.addEventListener('click', toggleCard);
+            header.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    toggleCard();
+                }
+            });
+        });
+        if (window.MathJax) {
+            safeTypeset();
+        }
+    }
+
+    // ---------- 添加示例初始数据 (让页面不空) ----------
+    function addDemoData() {
+        if (dataPoints.length === 0) {
+            // 几个近似二次的点
+            dataPoints.push({ x: 0.5, y: 1.2 });
+            dataPoints.push({ x: 1.2, y: 2.5 });
+            dataPoints.push({ x: 2.0, y: 4.0 });
+            dataPoints.push({ x: 3.0, y: 6.8 });
+            dataPoints.push({ x: 4.0, y: 9.5 });
+            // 都保留两位
+            dataPoints = dataPoints.map(p => ({ x: p.x, y: parseFloat(p.y.toFixed(2)) }));
+        }
+        updateAll();
+    }
+
+    // ---------- 启动 ----------
+    function init() {
+        initChart();
+        bindEvents();
+        initFoldableCards();
+        addDemoData();
+        // 默认次数2
+        degreeSelect.value = '2';
+        currentDegree = 2;
+    }
+
+    init();
+
+    // 确保在 MathJax 完成加载后渲染所有数学公式
+    if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
+        MathJax.startup.promise.then(() => {
+            scheduleTypeset();
+        }).catch(() => {});
+    }
+</script>
+</body>
+</html>
