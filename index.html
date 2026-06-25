@@ -390,7 +390,7 @@
                 <h3>📖 多项式回归公式</h3>
                 <span class="toggle-icon">▶</span>
             </div>
-            <div id="formulaCard" class="card-body">
+            <div id="formulaCard" class="card-body open">
                 <p>给定 n 个数据点 \((x_i, y_i)\)，拟合 m 次多项式：</p>
                 <div class="latex-block">
                     \[
@@ -878,9 +878,10 @@
             header.setAttribute('role', 'button');
             header.setAttribute('tabindex', '0');
             header.setAttribute('aria-controls', targetId);
-            header.setAttribute('aria-expanded', 'false');
-            bodyDiv.classList.remove('open');
-            if (iconSpan) iconSpan.innerHTML = '▶';
+            const alreadyOpen = bodyDiv.classList.contains('open');
+            header.setAttribute('aria-expanded', alreadyOpen ? 'true' : 'false');
+            if (!alreadyOpen) bodyDiv.classList.remove('open');
+            if (iconSpan) iconSpan.innerHTML = alreadyOpen ? '▼' : '▶';
 
             const toggleCard = () => {
                 const isOpen = bodyDiv.classList.contains('open');
